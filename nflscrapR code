@@ -1,0 +1,176 @@
+library(nflscrapR)
+library(tidyverse)
+library(ggrepel)
+
+pbp_2019 <- read_csv("reg_pbp_2019.csv")
+
+
+
+pass_epa <- pbp_2019 %>%
+  filter(play_type %in% c("pass", "no_play", "qb_spike"),
+         epa != is.na(epa)) %>%
+  group_by (passer_player_name) %>%
+  summarize(pass_epa = sum(epa),
+            pass_plays = n ()) %>%
+  ungroup() %>% 
+  mutate(EPA_Play = round(pass_epa / pass_plays, 3)) %>%
+  slice(-1) %>% 
+  arrange(-EPA_Play) %>% 
+  filter(pass_plays >= 250) %>% 
+  drop_na()
+
+ggplot(pass_epa, aes(x = EPA_Play, y = reorder(passer_player_name, EPA_Play))) +
+  geom_point(size = 3) + 
+  theme_bw() + 
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(colour = "grey60", linetype = "dashed")
+  ) +
+  ylab("Quarterback") + 
+  xlab("EPA Per Play") +
+  ggtitle(label = "2019 EPA Per Play for Pass Plays",
+          subtitle = "Minimal 250 Pass Plays to Qualify") + 
+  theme(
+    plot.title = element_text(color = "black", size = 12, face = "bold", hjust = .5),
+    plot.subtitle = element_text(color = "black", hjust = .5))
+  
+
+
+rush_epa <- pbp_2019 %>% 
+  filter(play_type %in% c("run"),
+         qb_dropback == 1, 
+         qb_scramble == 1,
+         epa != is.na(epa)) %>% 
+  group_by(rusher_player_name) %>% 
+  summarize(run_epa = sum(epa),
+            run_plays = n ()) %>% 
+  filter(run_plays >= 0) %>% 
+  mutate(EPA_RPlay = round(run_epa / run_plays, 3)) 
+
+
+total_epa <- left_join(pass_epa, rush_epa, by = c("passer_player_name" = "rusher_player_name")) %>% 
+  drop_na()
+
+qb_epa_per_play <- pass_epa %>%
+  left_join(rush_epa, by = c("passer_player_name" = "rusher_player_name")) %>%
+  mutate(epa = run_epa + pass_epa,
+         plays = pass_plays + run_plays, 
+         EPA_Play = round(epa / plays, 2)) %>%
+  select(passer_player_name, plays,EPA_Play) %>%
+  arrange(desc(EPA_Play)) %>% 
+  drop_na()
+
+ggplot(qb_epa_per_play, aes(x = EPA_Play, y = reorder(passer_player_name, EPA_Play))) +
+  geom_point(size = 3) + 
+  theme_bw() + 
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.major.y = element_line(colour = "grey60", linetype = "dashed")
+  ) +
+  ylab("Quarterback") + 
+  xlab("EPA Per Play") +
+  ggtitle(label = "2019 EPA Per Play",
+          subtitle = "Minimum of 250 Pass Plays & 1 Rushing Play to Qualify") + 
+  theme(
+    plot.title = element_text(color = "black", size = 12, face = "bold", hjust = .5),
+    plot.subtitle = element_text(color = "black", hjust = .5))
+
+pass_epa_location <- pbp_2019 %>%
+  filter(play_type %in% c("pass", "no_play", "qb_spike"),
+         epa != is.na(epa)) %>%
+  group_by (pass_location) %>%
+  summarize(pass_epa = sum(epa),
+            pass_plays = n ()) %>%
+  ungroup() %>% 
+  mutate(EPA_Play = round(pass_epa / pass_plays, 3)) %>%
+  ungroup() %>%
+  arrange(-EPA_Play) %>% 
+  filter(pass_plays >= 50) %>% 
+  drop_na()
+
+
+ggplot(pass_epa_location, aes(x=pass_location, y=EPA_Play)) + 
+  geom_bar(stat="identity", width=.5, fill="tomato3") + 
+  labs(title="EPA of Passes By Location of the Field", 
+       caption="source: nflscrapR") + 
+  xlab("Pass Location") + 
+  ylab("EPA Per Play") +
+  theme(axis.text.x = element_text(angle=65, vjust=0.6),
+        plot.title = element_text(color = "black", size = 12, face = "bold", hjust = .5),
+        plot.subtitle = element_text(color = "black", hjust = .5))
+
+
+
+
+pass_epa_nh <- pbp_2019 %>%
+  filter(play_type %in% c("pass", "no_play"),
+         epa != is.na(epa),
+         no_huddle == 1) %>%
+  group_by(passer_player_id, passer_player_name) %>%
+  summarize(pass_epa_nh = sum(epa),
+            pass_plays_nh = n ()) %>%
+  ungroup() %>% 
+  mutate(EPA_Play_NH = round(pass_epa_nh / pass_plays_nh, 3)) %>%
+  slice(-1) %>% 
+  arrange(-EPA_Play_NH) %>% 
+  filter(pass_plays_nh >= 15)
+
+str(pass_epa)
+pass_epa$no_huddle <- factor(pass_epa$no_huddle)
+
+pass_epa_no_huddle <- pbp_2019 %>%
+  filter(play_type %in% c("pass", "qb_spike", "no_play"),
+         epa != is.na(epa)) %>%
+  group_by(no_huddle) %>%
+  summarize(pass_epa = sum(epa),
+            pass_plays = n ()) %>%
+  ungroup() %>% 
+  mutate(EPA_Play_Regular = round(pass_epa / pass_plays, 3)) %>%
+  arrange(-EPA_Play_Regular) 
+
+
+
+pass_epa_no_huddle$no_huddle <- factor(pass_epa_no_huddle$no_huddle)
+
+ggplot(pass_epa_no_huddle, aes(x=no_huddle, y=EPA_Play_Regular)) + 
+  geom_bar(stat="identity", width=.5, fill="tomato3") + 
+  labs(title="EPA of Passes No-Huddle vs. Traditional Huddle",
+       caption="source: nflscrapR") + 
+  ylab("EPA Per Play") +
+  theme(axis.text.x = element_text(angle=65, vjust=0.6)) + 
+  scale_x_discrete(labels=c("0" = "Huddle", "1" = "No-Huddle")) + 
+  xlab("Formation") +
+  theme(
+    plot.title = element_text(color = "black", size = 12, face = "bold", hjust = .5),
+    plot.subtitle = element_text(color = "black", hjust = .5))
+
+
+
+
+pass_epa_no_huddle_garbage_time <- pbp_2019 %>%
+  filter(play_type %in% c("pass", "qb_spike", "no_play"),
+         epa != is.na(epa), 
+         qtr %in% c('1', "2", "3")) %>%
+  group_by(no_huddle) %>%
+  summarize(pass_epa = sum(epa),
+            pass_plays = n ()) %>%
+  ungroup() %>% 
+  mutate(EPA_Play_Regular = round(pass_epa / pass_plays, 3)) %>%
+  arrange(-EPA_Play_Regular) 
+
+pass_epa_no_huddle_garbage_time$no_huddle <- factor(pass_epa_no_huddle_garbage_time$no_huddle)
+
+ggplot(pass_epa_no_huddle_garbage_time, aes(x=no_huddle, y=EPA_Play_Regular)) + 
+  geom_bar(stat="identity", width=.5, fill="tomato3") + 
+  labs(title="EPA of Passes No-Huddle vs. Traditional Huddle",
+       subtitle = "Quarters 1, 2, 3",
+       caption="source: nflscrapR") + 
+  ylab("EPA Per Play") +
+  theme(axis.text.x = element_text(angle=65, vjust=0.6)) + 
+  scale_x_discrete(labels=c("0" = "Huddle", "1" = "No-Huddle")) + 
+  xlab("Formation") +
+  theme(
+    plot.title = element_text(color = "black", size = 12, face = "bold", hjust = .5),
+    plot.subtitle = element_text(color = "black", hjust = .5))
